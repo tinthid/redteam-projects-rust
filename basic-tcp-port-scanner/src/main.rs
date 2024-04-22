@@ -20,24 +20,28 @@ fn main() -> Result<()> {
     let ipv4 = ip_addr.parse::<Ipv4Addr>()?;
 
     let runtime = Builder::new_multi_thread()
-        .worker_threads(256)
+        .worker_threads(4)
         .enable_all()
         .build()
         .unwrap();
 
     runtime.block_on(async {
         let mut tasks = vec![];
-        for p in 1..2010 {
+        for p in 1..=65535 {
             let socket = SocketAddrV4::new(ipv4, p);
             tasks.push(task::spawn(scan_port(socket)));
         }
 
         let results = join_all(tasks).await;
-        for r in results {
-            match r.unwrap() {
-                Err(e) => println!("{e:?}"),
-                Ok(p) => println!("Open port {p}"),
-            }
+
+        let open_ports: Vec<u16> = results
+            .into_iter()
+            .filter_map(|r| r.ok())
+            .filter_map(|o| o.ok())
+            .collect();
+
+        for port in open_ports {
+            println!("Open port {port}");
         }
     });
 
