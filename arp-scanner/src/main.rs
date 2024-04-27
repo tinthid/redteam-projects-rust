@@ -1,6 +1,6 @@
 use ipnetwork::Ipv4Network;
 use pnet::{
-    datalink::{self, Channel::Ethernet, MacAddr},
+    datalink::{self, Channel, NetworkInterface, MacAddr},
     packet::{
         arp::{ArpHardwareTypes, ArpOperations, ArpPacket, MutableArpPacket},
         ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket},
@@ -23,8 +23,12 @@ fn main() {
         }
     };
 
-    for ip in subnet.iter() {
-        println!("{}", ip);
-    }
+    let interfaces = datalink::interfaces();
+
+    let interface = interfaces.into_iter()
+        .find(|iface| iface.ips.iter().any(|ip| ip.network() == subnet.network()))
+        .expect("Network interface with specified IP not found");
+
+    println!("{}", interface);
 
 }
