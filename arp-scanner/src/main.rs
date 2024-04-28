@@ -1,6 +1,6 @@
 use ipnetwork::Ipv4Network;
 use pnet::{
-    datalink::{self, Channel, NetworkInterface, MacAddr},
+    datalink::{self, Channel, MacAddr},
     packet::{
         arp::{ArpHardwareTypes, ArpOperations, ArpPacket, MutableArpPacket},
         ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket},
@@ -9,22 +9,16 @@ use pnet::{
 };
 use std::env;
 use std::net::Ipv4Addr;
+use std::time::{Duration, Instant};
 
 fn main() {
 
     let target_network = env::args().nth(1).expect("No network given");
     let cidr = &target_network;
 
-    let subnet = match cidr.parse::<Ipv4Network>() {
-        Ok(network) => network,
-        Err(_) => {
-            eprintln!("Failed to parse network");
-            return;
-        }
-    };
-
+    let subnet = cidr.parse::<Ipv4Network>().expect("Failed to parse network");
+    
     let interfaces = datalink::interfaces();
-
     let interface = interfaces.into_iter()
         .find(|iface| iface.ips.iter().any(|ip| ip.network() == subnet.network()))
         .expect("Network interface with specified IP not found");
@@ -48,6 +42,25 @@ fn main() {
     
     for ip in subnet.iter() {
         send_arp_request(&mut tx, interface.mac.unwrap().clone(), src_ip, ip);
+    }
+
+
+    let timeout = Duration::new(30, 0);
+    let start_time = Instant::now();
+    while Instant::now().duration_since(start_time) < timeout {
+        match rx.next() {
+            Ok(packet) => {
+                let ethernet_packet = EthernetPacket::new(packet).unwrap();
+                let arp_packet = ArpPacket::new(ethernet_packet.payload()).unwrap();
+                if arp_packet.get_operation().0 == 2 {
+                    println!("found {} at {}", arp_packet.get_sender_hw_addr(), arp_packet.get_sender_proto_addr());
+                }
+            },
+            Err(e) => {
+                eprintln!("An error occurred while reading: {}", e);
+                break;
+            }
+        }
     }
 
 }
