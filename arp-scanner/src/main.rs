@@ -10,6 +10,8 @@ use pnet::{
 use std::env;
 use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
+use std::fs::read_to_string;
+use std::collections::HashMap;
 
 fn main() {
 
@@ -18,6 +20,17 @@ fn main() {
 
     let subnet = cidr.parse::<Ipv4Network>().expect("Failed to parse network");
     
+    // read manufacture mac address
+
+    let mut mac_address_data = HashMap::new();
+    let mac_data = read_to_string("./manuf").unwrap();
+    for mac_line in mac_data.lines() {
+            let splited_line: Vec<&str> = mac_line.split("\t").map(|e| e.trim()).collect();
+            mac_address_data.insert(splited_line[0], splited_line[2]);
+    }
+
+    
+
     let interfaces = datalink::interfaces();
     let interface = interfaces.into_iter()
         .find(|iface| iface.ips.iter().any(|ip| ip.network() == subnet.network()))
@@ -53,7 +66,18 @@ fn main() {
                 let ethernet_packet = EthernetPacket::new(packet).unwrap();
                 let arp_packet = ArpPacket::new(ethernet_packet.payload()).unwrap();
                 if arp_packet.get_operation().0 == 2 {
-                    println!("found {} at {}", arp_packet.get_sender_hw_addr(), arp_packet.get_sender_proto_addr());
+
+                    let mac_prefix = format!("{:02X}:{:02X}:{:02X}",
+                        arp_packet.get_sender_hw_addr().0,
+                        arp_packet.get_sender_hw_addr().1,
+                        arp_packet.get_sender_hw_addr().2);
+
+                    println!("{:<15} {} {}", 
+                        arp_packet.get_sender_proto_addr(),
+                        arp_packet.get_sender_hw_addr(),
+                        mac_address_data.get(&mac_prefix as &str).unwrap_or(&""));
+
+
                 }
             },
             Err(e) => {
