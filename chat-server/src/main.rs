@@ -24,7 +24,7 @@ struct Message {
 #[derive(Debug)]
 struct Peer {
     addr: SocketAddr,
-    writer: Arc<Mutex<WriteHalf<TcpStream>>>,
+    writer: WriteHalf<TcpStream>,
 }
 
 enum Event {
@@ -43,9 +43,8 @@ async fn main() {
     loop {
         let (stream, addr) = listener.accept().await.unwrap();
         let (reader, writer) = tokio::io::split(stream);
-        let writer = Arc::new(Mutex::new(writer));
 
-        if let Err(e) = handle_connection(addr, broker_tx.clone(), Arc::clone(&writer)) {
+        if let Err(e) = handle_connection(addr, broker_tx.clone(), writer) {
             eprintln!("{e}")
         }
 
@@ -56,12 +55,9 @@ async fn main() {
 fn handle_connection(
     addr: SocketAddr,
     broker_tx: Sender<Event>,
-    writer: Arc<Mutex<WriteHalf<TcpStream>>>,
+    writer: WriteHalf<TcpStream>,
 ) -> Result<()> {
-    broker_tx.send(Event::NewConnection(Peer {
-        addr,
-        writer: Arc::clone(&writer),
-    }))?;
+    broker_tx.send(Event::NewConnection(Peer { addr, writer }))?;
 
     broker_tx.send(Event::NewMessage(Message {
         from: "127.0.0.1:8000".parse::<SocketAddr>().unwrap(),
@@ -73,8 +69,7 @@ fn handle_connection(
 }
 
 async fn broker_handle(mut rx: Receiver<Event>) -> Result<()> {
-    let mut peers: HashMap<SocketAddr, Arc<Mutex<tokio::io::WriteHalf<TcpStream>>>> =
-        HashMap::new();
+    let mut peers: HashMap<SocketAddr, WriteHalf<TcpStream>> = HashMap::new();
     while let Some(event) = rx.recv().await {
         match event {
             Event::NewConnection(peer) => {
@@ -83,8 +78,7 @@ async fn broker_handle(mut rx: Receiver<Event>) -> Result<()> {
             Event::NewMessage(message) => {
                 let msg = format!("from {}: {}\n", message.from, message.msg);
                 match peers.get_mut(&message.dst) {
-                    Some(x) => {
-                        let mut writer = x.lock().await;
+                    Some(writer) => {
                         writer.write(msg.as_bytes()).await.unwrap();
                     }
                     None => (),
